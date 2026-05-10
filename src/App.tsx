@@ -27,7 +27,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <Router>
+    <Router basename="/Warehouse-Zero">
       <AppContent />
     </Router>
   );
