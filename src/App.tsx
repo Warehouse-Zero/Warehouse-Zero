@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import { useThemeStore } from './stores/themeStore';
 import { useEffect } from 'react';
 import HomePage from './pages/HomePage';
@@ -8,6 +8,16 @@ import NotFoundPage from './pages/NotFoundPage';
 
 function AppContent() {
   const { mode } = useThemeStore();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // 检查是否有保存的重定向路径
+    const redirectPath = sessionStorage.getItem('redirectPath');
+    if (redirectPath) {
+      sessionStorage.removeItem('redirectPath');
+      navigate(redirectPath);
+    }
+  }, [navigate]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', mode === 'dark');
