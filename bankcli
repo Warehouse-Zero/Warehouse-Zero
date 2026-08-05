@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+import sys
+import os
+import json
+import argparse
+from datetime import datetime
+from pathlib import Path
+
+DATA_DIR = Path.home() / ".bankcli"
+DATA_FILE = DATA_DIR / "data.json"
+
+
+def ensure_data_dir():
+    if not DATA_DIR.exists():
+        DATA_DIR.mkdir(parents=True)
+
+
+def load_data():
+    ensure_data_dir()
+    if not DATA_FILE.exists():
+        return {"balance": 0.0, "goal": 0.0, "transactions": []}
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_data(data):
+    ensure_data_dir()
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def add_transaction(data, tx_type, amount, note=""):
+    tx = {
+        "type": tx_type,
+        "amount": amount,
+        "note": note,
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    data["transactions"].insert(0, tx)
+
+
+def cmd_init(args):
+    if DATA_FILE.exists() and not args.force:
+        print("⚠️  账户已存在，使用 --force 重新初始化")
+        return
+    data = {"balance": 0.0, "goal": 0.0, "transactions": []}
+    save_data(data)
+    print("🏦 银行账户初始化成功！")
+    print(f"   数据目录: {DATA_DIR}")
+
+
+def cmd_deposit(args):
+    data = load_data()
+    amount = float(args.amount)
+    if amount <= 0:
+        print("❌ 存款金额必须大于0")
+        sys.exit(1)
+    note = args.note if args.note else ""
+    data["balance"] += amount
+    add_transaction(data, "deposit", amount, note)
+    save_data(data)
+    print(f"💰 已存入 ¥{amount:.2f}")
+    print_balance(data)
+
+
+def cmd_withdraw(args):
+    data = load_data()
+    amount = float(args.amount)
+    if amount <= 0:
+        print("❌ 取款金额必须大于0")
+        sys.exit(1)
+    if data["balance"] < amount:
+        print(f"❌ 余额不足，当前余额: ¥{data['balance']:.2f}")
+        sys.exit(1)
+    note = args.note if args.note else ""
+    data["balance"] -= amount
+    add_transaction(data, "withdraw", amount, note)
+    save_data(data)
+    print(f"💸 已取出 ¥{amount:.2f}")
+    print_balance(data)
+
+
+def print_balance(data):
+    balance = data["balance"]
+    goal = data.get("goal", 0)
+    print(f"💵 当前余额: ¥{balance:.2f}")
+    if goal > 0:
+        progress = min(balance / goal * 100, 100)
+        print(f"🎯 目标进度: {progress:.1f}% / ¥{goal:.2f}")
+
+
+def cmd_balance(args):
+    data = load_data()
+    print_balance(data)
+
+
+def cmd_ls(args):
+    cmd_balance(args)
+
+
+def cmd_history(args):
+    data = load_data()
+    txs = data["transactions"]
+    limit = args.n if args.n else len(txs)
+    if not txs:
+        print("📝 暂无交易记录")
+        return
+    print(f"📜 最近 {min(limit, len(txs))} 条交易记录:")
+    print("-" * 60)
+    for tx in txs[:limit]:
+        sign = "+" if tx["type"] == "deposit" else "-"
+        icon = "💰" if tx["type"] == "deposit" else "💸"
+        note_str = f" ({tx['note']})" if tx["note"] else ""
+        print(f"{icon} {tx['time']}  {sign}¥{tx['amount']:>10.2f}{note_str}")
+
+
+def cmd_log(args):
+    cmd_history(args)
+
+
+def cmd_setgoal(args):
+    data = load_data()
+    amount = float(args.amount)
+    data["goal"] = amount
+    save_data(data)
+    print(f"🎯 存款目标已设置为: ¥{amount:.2f}")
+    print_balance(data)
+
+
+def cmd_goal(args):
+    data = load_data()
+    if data.get("goal", 0) <= 0:
+        print("⚠️  尚未设置存款目标，使用 `bank setgoal <金额>` 设置")
+        return
+    print_balance(data)
+
+
+def cmd_rm(args):
+    if not args.y:
+        print("⚠️  此操作将清空所有账户数据（余额、交易记录、目标）")
+        confirm = input("确定要继续吗？输入 yes 确认: ")
+        if confirm.lower() != "yes":
+            print("操作已取消")
+            return
+    if DATA_FILE.exists():
+        DATA_FILE.unlink()
+        print("🗑️  账户数据已清空")
+    else:
+        print("📭 账户不存在")
+
+
+def cmd_help(args):
+    parser.print_help()
+
+
+def main():
+    global parser
+    parser = argparse.ArgumentParser(
+        prog="bank",
+        description="🏦 BankCLI - Linux风格的命令行存钱工具",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+命令示例:
+  bank init                  初始化账户
+  bank deposit 100           存入100元
+  bank deposit 100 -n "工资"  存入100元并添加备注
+  bank withdraw 50           取出50元
+  bank balance (bank ls)     查看余额
+  bank history (bank log)    查看交易记录
+  bank setgoal 10000         设置存款目标
+  bank goal                  查看目标进度
+  bank rm                    清空账户数据（危险）
+        """
+    )
+    subparsers = parser.add_subparsers(dest="command", help="可用命令")
+
+    subparsers.add_parser("init", help="初始化银行账户").add_argument("--force", action="store_true", help="强制重新初始化")
+
+    p_dep = subparsers.add_parser("deposit", help="存款")
+    p_dep.add_argument("amount", help="存款金额")
+    p_dep.add_argument("-n", "--note", help="备注")
+
+    p_wd = subparsers.add_parser("withdraw", help="取款")
+    p_wd.add_argument("amount", help="取款金额")
+    p_wd.add_argument("-n", "--note", help="备注")
+
+    subparsers.add_parser("balance", help="查看余额")
+    subparsers.add_parser("ls", help="查看余额 (balance别名)")
+
+    p_hist = subparsers.add_parser("history", help="查看交易记录")
+    p_hist.add_argument("-n", type=int, help="显示最近N条记录")
+    p_log = subparsers.add_parser("log", help="查看交易记录 (history别名)")
+    p_log.add_argument("-n", type=int, help="显示最近N条记录")
+
+    p_sg = subparsers.add_parser("setgoal", help="设置存款目标")
+    p_sg.add_argument("amount", help="目标金额")
+
+    subparsers.add_parser("goal", help="查看目标进度")
+
+    p_rm = subparsers.add_parser("rm", help="清空账户数据")
+    p_rm.add_argument("-y", action="store_true", help="跳过确认")
+
+    subparsers.add_parser("help", help="显示帮助")
+
+    args = parser.parse_args()
+
+    if not args.command or args.command == "help":
+        parser.print_help()
+        return
+
+    commands = {
+        "init": cmd_init,
+        "deposit": cmd_deposit,
+        "withdraw": cmd_withdraw,
+        "balance": cmd_balance,
+        "ls": cmd_ls,
+        "history": cmd_history,
+        "log": cmd_log,
+        "setgoal": cmd_setgoal,
+        "goal": cmd_goal,
+        "rm": cmd_rm,
+        "help": cmd_help,
+    }
+
+    if args.command in commands:
+        commands[args.command](args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
